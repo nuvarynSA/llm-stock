@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LLM Stock — Reports &amp; Queries demo</title>
+    <style>
+      :root {
+        --bg: #0f1117;
+        --panel: #171a23;
+        --panel-2: #1f2330;
+        --border: #2a2f3d;
+        --text: #e7e9ee;
+        --muted: #9aa3b2;
+        --accent: #4f8cff;
+        --accent-soft: rgba(79, 140, 255, 0.14);
+        --ok: #3ad29f;
+        --warn: #ffb020;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+      }
+      header {
+        padding: 20px 16px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(180deg, var(--panel), var(--bg));
+      }
+      .wrap { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      .sub { color: var(--muted); font-size: 13px; margin: 0; }
+      .badge {
+        display: inline-block; font-size: 11px; color: var(--muted);
+        border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; margin-top: 10px;
+      }
+      main { padding: 22px 0 80px; }
+      .suggest { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+      .chip {
+        background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+        border-radius: 999px; padding: 7px 13px; font-size: 13px; cursor: pointer;
+      }
+      .chip:hover { border-color: var(--accent); color: var(--accent); }
+      .composer { display: flex; gap: 8px; }
+      input[type="text"] {
+        flex: 1; background: var(--panel); border: 1px solid var(--border); color: var(--text);
+        border-radius: 10px; padding: 13px 14px; font-size: 15px; outline: none;
+      }
+      input[type="text"]:focus { border-color: var(--accent); }
+      button {
+        background: var(--accent); color: #fff; border: 0; border-radius: 10px;
+        padding: 0 20px; font-size: 15px; font-weight: 600; cursor: pointer;
+      }
+      button:disabled { opacity: 0.55; cursor: default; }
+      .answer { margin-top: 22px; }
+      .bubble {
+        background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+        padding: 16px 18px; margin-bottom: 14px;
+      }
+      .q { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+      .a { font-size: 16px; }
+      .meta { font-size: 12px; color: var(--muted); margin-top: 10px; }
+      details.tools { margin-top: 12px; }
+      details.tools summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+      .tool {
+        margin-top: 10px; background: var(--panel-2); border: 1px solid var(--border);
+        border-radius: 10px; padding: 12px 14px;
+      }
+      .tool .name { font-weight: 600; font-size: 13px; }
+      .tool .name span { color: var(--accent); }
+      table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+      th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+      th { color: var(--muted); font-weight: 600; }
+      .metrics { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+      .metric {
+        background: var(--accent-soft); border: 1px solid var(--border); border-radius: 8px;
+        padding: 6px 11px; font-size: 13px;
+      }
+      .metric b { display: block; font-size: 15px; }
+      .err { border-color: var(--warn); color: var(--warn); }
+      code { background: var(--panel-2); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f5f6f9; --panel: #fff; --panel-2: #f0f2f7; --border: #dde1ea;
+          --text: #1a1d26; --muted: #5b6475; --accent-soft: rgba(79, 140, 255, 0.1);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <h1>LLM Stock · Reports &amp; Queries</h1>
+        <p class="sub">Ask in plain language. The model calls read-only ERP tools and answers from the data.</p>
+        <span class="badge" id="badge">checking model…</span>
+      </div>
+    </header>
+    <main class="wrap">
+      <div class="suggest" id="suggest"></div>
+      <form class="composer" id="form">
+        <input type="text" id="q" placeholder="e.g. How much did I sell this week?" autocomplete="off" />
+        <button type="submit" id="send">Ask</button>
+      </form>
+      <div class="answer" id="answer"></div>
+    </main>
+
+    <script>
+      const SUGGESTIONS = [
+        '¿Cuánto vendí esta semana?',
+        '¿Qué clientes tienen deuda pendiente?',
+        '¿Qué productos tengo que reponer urgente?',
+        '¿Cuánto le debo al proveedor Dicaro?',
+        '¿Cuál es el margen de Lácteos este mes?',
+        'How much did I sell in cash vs. credit this month?',
+      ];
+      const suggest = document.getElementById('suggest');
+      SUGGESTIONS.forEach((s) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chip';
+        b.textContent = s;
+        b.onclick = () => { document.getElementById('q').value = s; document.getElementById('form').requestSubmit(); };
+        suggest.appendChild(b);
+      });
+
+      fetch('/health').then((r) => r.json()).then((h) => {
+        const badge = document.getElementById('badge');
+        badge.textContent = h.groqKeyConfigured
+          ? 'model: ' + (h.modelos[0] || 'n/a') + ' · demo data'
+          : '⚠ GROQ_API_KEY not configured — see README';
+      }).catch(() => {});
+
+      const answer = document.getElementById('answer');
+      const fmt = (v, f) => {
+        if (v === null || v === undefined) return '';
+        if (f === 'currency') return '$' + Number(v).toLocaleString('es-AR');
+        if (f === 'percent') return Number(v).toLocaleString('es-AR') + '%';
+        if (f === 'kg') return Number(v).toLocaleString('es-AR') + ' kg';
+        if (f === 'un') return Number(v).toLocaleString('es-AR') + ' u';
+        if (f === 'number') return Number(v).toLocaleString('es-AR');
+        return String(v);
+      };
+
+      function renderTool(t) {
+        const r = t.resultado || {};
+        const div = document.createElement('div');
+        div.className = 'tool';
+        div.innerHTML = '<div class="name">🔧 <span>' + t.tool + '</span></div>';
+        if (r.metricas && r.metricas.length) {
+          const m = document.createElement('div');
+          m.className = 'metrics';
+          r.metricas.forEach((x) => {
+            const el = document.createElement('div');
+            el.className = 'metric';
+            el.innerHTML = x.label + '<b>' + fmt(x.valor, x.format) + '</b>';
+            m.appendChild(el);
+          });
+          div.appendChild(m);
+        }
+        if (r.columnas && r.columnas.length && r.filas && r.filas.length) {
+          const tbl = document.createElement('table');
+          tbl.innerHTML =
+            '<thead><tr>' + r.columnas.map((c) => '<th>' + c.label + '</th>').join('') + '</tr></thead>' +
+            '<tbody>' + r.filas.slice(0, 8).map((row) =>
+              '<tr>' + r.columnas.map((c) => '<td>' + fmt(row[c.key], c.format) + '</td>').join('') + '</tr>'
+            ).join('') + '</tbody>';
+          div.appendChild(tbl);
+        }
+        return div;
+      }
+
+      document.getElementById('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const q = document.getElementById('q').value.trim();
+        if (!q) return;
+        const send = document.getElementById('send');
+        send.disabled = true; send.textContent = '…';
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.innerHTML = '<div class="q">' + q + '</div><div class="a">Thinking…</div>';
+        answer.prepend(bubble);
+
+        try {
+          const res = await fetch('/ia/consultar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pregunta: q }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            bubble.querySelector('.a').innerHTML = '<span class="err">⚠ ' + (data.message || 'Error') + '</span>';
+          } else {
+            bubble.querySelector('.a').textContent = data.respuesta;
+            const meta = document.createElement('div');
+            meta.className = 'meta';
+            meta.textContent = 'model: ' + data.modeloUsado + ' · ' + data.tokens + ' tokens · ' + data.iteraciones + ' iteration(s)';
+            bubble.appendChild(meta);
+            if (data.consultasUtilizadas && data.consultasUtilizadas.length) {
+              const det = document.createElement('details');
+              det.className = 'tools';
+              det.innerHTML = '<summary>' + data.consultasUtilizadas.length + ' tool call(s) — see the data</summary>';
+              data.consultasUtilizadas.forEach((t) => det.appendChild(renderTool(t)));
+              bubble.appendChild(det);
+            }
+          }
+        } catch (err) {
+          bubble.querySelector('.a').innerHTML = '<span class="err">⚠ Network error</span>';
+        } finally {
+          send.disabled = false; send.textContent = 'Ask';
+          document.getElementById('q').value = '';
+        }
+      });
+    </script>
+  </body>
+</html>
